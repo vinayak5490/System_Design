@@ -48,4 +48,5 @@ public class DIPFollwed {
         UserService service2 = new UserService(mongodb);
         service2.storeUser("Rohit");
     }
+    
 }
