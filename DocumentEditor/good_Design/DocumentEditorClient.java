@@ -153,5 +153,6 @@ public class DocumentEditorClient {
         System.out.println(editor.renderDocument());
 
         editor.saveDocument();
+        
     }
 }
