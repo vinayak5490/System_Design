@@ -1,0 +1,84 @@
++------------------------------------+
+|           ParkingLot               |
++------------------------------------+
+| - floors: List<ParkingFloor>       |
+| - tickets: Map<String, Ticket>     |
++------------------------------------+
+| + parkVehicle(v: Vehicle): Ticket  |
+| + unparkVehicle(ticketId: String): void |
+| + showAvailability(): void         |
++------------------------------------+
+
+
++------------------------------------+
+|          ParkingFloor              |
++------------------------------------+
+| - floorNumber: int                 |
+| - slots: List<ParkingSlot>         |
++------------------------------------+
+| + getAvailableSlot(vType: VehicleType): ParkingSlot |
+| + displayAvailability(): void      |
++------------------------------------+
+
+
++------------------------------------+
+|          ParkingSlot               |
++------------------------------------+
+| - slotId: int                      |
+| - type: SlotType                   |
+| - occupied: boolean                |
+| - vehicle: Vehicle                 |
++------------------------------------+
+| + parkVehicle(v: Vehicle): void    |
+| + freeSlot(): void                 |
+| + isAvailable(): boolean           |
++------------------------------------+
+
+
++------------------------------------+
+|             Vehicle                |
++------------------------------------+
+| - vehicleNumber: String            |
+| - type: VehicleType                |
++------------------------------------+
+| + Vehicle(vehicleNumber:String, type:VehicleType) |
+| + getVehicleType(): VehicleType    |
++------------------------------------+
+
+
++------------------------------------+
+|              Ticket                |
++------------------------------------+
+| - ticketId: String                 |
+| - vehicle: Vehicle                 |
+| - slot: ParkingSlot                |
+| - entryTime: long                  |
++------------------------------------+
+| + Ticket(id:String, v:Vehicle, s:ParkingSlot) |
+| + getParkingDuration(): long       |
++------------------------------------+
+
+
++------------------------------------+
+|              Payment               |
++------------------------------------+
+| + calculateCharges(duration:long, vType:VehicleType): double |
++------------------------------------+
+
+
++----------------------------+
+| <<enum>> VehicleType       |
++----------------------------+
+| CAR                        |
+| BIKE                       |
+| TRUCK                      |
++----------------------------+
+
+
++----------------------------+
+| <<enum>> SlotType          |
++----------------------------+
+| COMPACT                    |
+| BIKE                       |
+| LARGE                      |
++----------------------------+

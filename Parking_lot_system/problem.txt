@@ -1,0 +1,11 @@
+Step 1: Problem Overview
+
+We need to design a Parking Lot System that:
+
+Allows vehicles to enter, park, and exit.
+
+Supports multiple vehicle types (Car, Bike, Truck, etc.).
+
+Keeps track of available and occupied slots.
+
+Calculates parking charges based on duration and vehicle type.

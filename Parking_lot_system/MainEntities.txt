@@ -1,0 +1,10 @@
+| Class                  | Responsibility                                          |
+| :--------------------- | :------------------------------------------------------ |
+| **ParkingLot**         | Manages parking floors and overall entry/exit flow      |
+| **ParkingFloor**       | Contains multiple parking slots                         |
+| **ParkingSlot**        | Represents a single slot that can be occupied or free   |
+| **Vehicle**            | Represents a vehicle with type, number, etc.            |
+| **Ticket**             | Issued when a vehicle enters; used to calculate charges |
+| **Payment**            | Handles payment upon exit                               |
+| **VehicleType (enum)** | CAR, BIKE, TRUCK                                        |
+| **SlotType (enum)**    | COMPACT, LARGE, BIKE                                    |
