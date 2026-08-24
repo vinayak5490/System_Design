@@ -1,0 +1,568 @@
+# URL Shortener System Design — Java
+
+## 1. Problem Statement
+
+We need to design a service like:
+
+`https://example.com/very/long/url` → `ourshort.ly/aB72x`
+
+When a user accesses:
+
+`GET /aB72x`
+
+the service redirects them to the original URL.
+
+### Core Requirements
+
+* Create a shortened URL.
+* Redirect a short URL to the original URL.
+* Short URLs must be unique.
+* Support optional URL expiration.
+
+### Non-Functional Requirements
+
+* High read traffic.
+* Low latency for redirects.
+* High availability.
+* Horizontal scalability.
+* No loss of URL mappings.
+* Short URL codes should be reasonably short.
+
+---
+
+## 2. Scale Estimation
+
+Assume:
+
+* 100 million new URLs/month.
+* 10 billion redirects/month.
+
+Average URL creation rate:
+
+`100M / (30 × 24 × 60 × 60) ≈ 38 requests/sec`
+
+Average redirect rate:
+
+`10B / (30 × 24 × 60 × 60) ≈ 3,858 requests/sec`
+
+Assuming 10× peak traffic:
+
+* Writes ≈ 400 req/sec.
+* Reads ≈ 40,000 req/sec.
+
+This tells us the system is **read-heavy**, so caching is extremely important.
+
+---
+
+## 3. High-Level Architecture
+
+```text
+                    ┌───────────────┐
+                    │    Client     │
+                    └───────┬───────┘
+                            │
+                            ▼
+                    ┌───────────────┐
+                    │ Load Balancer │
+                    └───────┬───────┘
+                            │
+               ┌────────────┴────────────┐
+               ▼                         ▼
+       ┌────────────────┐        ┌────────────────┐
+       │ URL Service #1 │        │ URL Service #2 │
+       └───────┬────────┘        └───────┬────────┘
+               │                         │
+               └────────────┬────────────┘
+                            │
+                     ┌──────▼───────┐
+                     │    Redis     │
+                     │    Cache     │
+                     └──────┬───────┘
+                            │
+                            ▼
+                     ┌─────────────┐
+                     │  PostgreSQL │
+                     └─────────────┘
+```
+
+---
+
+## 4. Database Design
+
+We need a mapping:
+
+`shortCode → originalURL`
+
+Table:
+
+```text
+URL
+--------------------------------
+id
+short_code
+original_url
+created_at
+expires_at
+user_id
+```
+
+Example:
+
+```text
+id           12345
+short_code   aB72x
+original_url https://example.com/products/123
+created_at   2026-08-24
+expires_at   NULL
+```
+
+Important constraint:
+
+```sql
+UNIQUE(short_code)
+```
+
+This guarantees that every short code maps to exactly one URL.
+
+---
+
+## 5. Short Code Generation
+
+A good approach is:
+
+**Unique numeric ID + Base62 encoding**
+
+Base62 uses:
+
+```text
+0-9
+a-z
+A-Z
+```
+
+That's 62 characters.
+
+For six characters:
+
+`62^6 ≈ 56.8 billion`
+
+For seven characters:
+
+`62^7 ≈ 3.5 trillion`
+
+So seven Base62 characters provide enormous capacity.
+
+Example:
+
+```text
+123456 → Base62 → z3dK
+```
+
+Result:
+
+`https://ourshort.ly/z3dK`
+
+---
+
+## 6. Generating the Unique ID
+
+With multiple application servers, we cannot simply use:
+
+```java
+id++;
+```
+
+because two servers could generate the same ID.
+
+Possible solutions:
+
+### Option A — Database Sequence
+
+PostgreSQL can provide unique IDs through a sequence.
+
+Simple and reliable.
+
+### Option B — Snowflake-Style ID
+
+Generate distributed IDs using:
+
+```text
+timestamp
++
+machine ID
++
+sequence number
+```
+
+For a highly scalable system, a Snowflake-style ID generator is a strong choice.
+
+---
+
+## 7. URL Creation Flow
+
+Request:
+
+```http
+POST /api/v1/urls
+```
+
+Body:
+
+```json
+{
+    "url": "https://example.com/products/123"
+}
+```
+
+Flow:
+
+```text
+Client
+  ↓
+Load Balancer
+  ↓
+URL Service
+  ↓
+Generate unique ID
+  ↓
+Base62 encode
+  ↓
+Store mapping
+  ↓
+Return short URL
+```
+
+Example:
+
+```text
+ID = 123456789
+       ↓
+Base62
+       ↓
+aZ91x
+```
+
+Database:
+
+```text
+aZ91x → https://example.com/products/123
+```
+
+Response:
+
+```json
+{
+    "shortCode": "aZ91x",
+    "shortUrl": "https://ourshort.ly/aZ91x"
+}
+```
+
+---
+
+## 8. Redirect Flow
+
+Request:
+
+```http
+GET /aZ91x
+```
+
+Flow:
+
+```text
+Client
+  ↓
+Load Balancer
+  ↓
+URL Service
+  ↓
+Redis
+  │
+  ├── HIT → Original URL
+  │
+  └── MISS
+        ↓
+      Database
+        ↓
+      Redis
+        ↓
+    Original URL
+```
+
+Response:
+
+```http
+HTTP 302
+Location: https://example.com/products/123
+```
+
+---
+
+## 9. Redis Caching
+
+Because redirects are extremely frequent, we don't want every request hitting PostgreSQL.
+
+Redis can store:
+
+```text
+aZ91x → https://example.com/products/123
+```
+
+This gives us:
+
+* Lower latency.
+* Reduced database load.
+* Higher throughput.
+
+Use a **cache-aside** strategy:
+
+```java
+String url = redis.get(shortCode);
+
+if (url != null) {
+    return redirect(url);
+}
+
+URLMapping mapping = repository.findByShortCode(shortCode);
+
+redis.set(shortCode, mapping.getOriginalUrl());
+
+return redirect(mapping.getOriginalUrl());
+```
+
+If Redis goes down, PostgreSQL remains the source of truth and the application can fall back to the database.
+
+---
+
+## 10. API Design
+
+### Create URL
+
+```http
+POST /api/v1/urls
+```
+
+Request:
+
+```json
+{
+    "url": "https://www.example.com/some/long/url"
+}
+```
+
+Response:
+
+```json
+{
+    "shortCode": "aB72x",
+    "shortUrl": "https://short.ly/aB72x"
+}
+```
+
+### Redirect
+
+```http
+GET /{shortCode}
+```
+
+Response:
+
+```http
+302 Found
+Location: https://www.example.com/some/long/url
+```
+
+### Optional Custom Alias
+
+```http
+POST /api/v1/urls
+```
+
+```json
+{
+    "url": "https://example.com",
+    "customAlias": "google"
+}
+```
+
+Result:
+
+`short.ly/google`
+
+---
+
+## 11. 301 vs 302
+
+I'd generally choose **302** because it gives the service more control over redirect behavior.
+
+A 301 can be aggressively cached by browsers and intermediaries, which can make future destination changes more difficult to control.
+
+---
+
+## 12. Duplicate URLs
+
+Suppose:
+
+```text
+User A → https://example.com
+User B → https://example.com
+```
+
+I'd initially generate different short URLs:
+
+```text
+User A → short.ly/aB12
+User B → short.ly/xY92
+```
+
+This allows independent analytics:
+
+```text
+aB12 → 10,000 clicks
+xY92 → 500 clicks
+```
+
+---
+
+## 13. Database Scaling
+
+When the database becomes very large, we can introduce:
+
+### Read Replicas
+
+```text
+             Primary DB
+                 │
+          ┌──────┴──────┐
+          ▼             ▼
+      Replica 1      Replica 2
+```
+
+Writes go to the primary.
+
+Reads can go to replicas.
+
+However, Redis should absorb most redirect traffic, so read replicas are a secondary scaling mechanism.
+
+### Sharding
+
+At very large scale, partition/shard based on a hash of the short code or another appropriate shard key.
+
+---
+
+## 14. Rate Limiting
+
+Protect URL creation APIs from abuse.
+
+Example:
+
+`10 URL creations/minute/user`
+
+Use Redis with a token-bucket or similar distributed rate-limiting algorithm.
+
+Example key:
+
+```text
+rate_limit:user:123
+```
+
+This can be integrated with a distributed rate limiter.
+
+---
+
+## 15. Analytics
+
+Don't synchronously write every click to the database before redirecting.
+
+Instead:
+
+```text
+User
+ ↓
+Redirect Service
+ ↓
+Redis lookup
+ ↓
+302 Redirect
+ ↓
+Kafka event
+ ↓
+Analytics Consumer
+ ↓
+Analytics Database
+```
+
+The redirect remains fast while analytics processing happens asynchronously.
+
+---
+
+## 16. Final Architecture
+
+```text
+                         ┌───────────┐
+                         │  Clients  │
+                         └─────┬─────┘
+                               │
+                               ▼
+                       ┌──────────────┐
+                       │ Load Balancer│
+                       └──────┬───────┘
+                              │
+                 ┌────────────┴────────────┐
+                 │                         │
+                 ▼                         ▼
+          ┌─────────────┐          ┌─────────────┐
+          │ URL Service │          │ URL Service │
+          │     #1      │          │     #2      │
+          └──────┬──────┘          └──────┬──────┘
+                 │                         │
+                 └───────────┬─────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │      Redis      │
+                    └────────┬────────┘
+                             │
+                       Cache Miss
+                             │
+                             ▼
+                    ┌────────────────┐
+                    │   PostgreSQL   │
+                    │     Primary    │
+                    └───────┬────────┘
+                            │
+                     Replication
+                       ┌────┴────┐
+                       ▼         ▼
+                   Replica 1  Replica 2
+
+       Redirect events
+              │
+              ▼
+           Kafka
+              │
+              ▼
+       Analytics Service
+              │
+              ▼
+       Analytics Database
+```
+
+---
+
+# 17. Java Implementation Roadmap
+
+Build it incrementally:
+
+```text
+Phase 1 → Pure Java URL shortener
+Phase 2 → Spring Boot REST APIs
+Phase 3 → PostgreSQL + JPA
+Phase 4 → Redis caching
+Phase 5 → Docker
+Phase 6 → Distributed ID generation
+Phase 7 → Rate limiting
+Phase 8 → Kafka analytics
+Phase 9 → Load testing
+```
+
+The goal should be to understand **why each component exists**, rather than simply memorizing the architecture.
