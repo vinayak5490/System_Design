@@ -2,7 +2,7 @@
  * singledesignPattern
  */
 public class singledesignPattern {
-    static class Singleton{
+    static class Singleton{//Singleton class
         private static Singleton instance;
         private Singleton(){
 
@@ -12,7 +12,7 @@ public class singledesignPattern {
                 //not created yet
                 synchronized(Singleton.class){
                     if(instance == null){
-                        instance = new Singleton();
+                        instance = new Singleton(); // lazy initialization :- initialize the instance only when required
                     }
                 }
             }
