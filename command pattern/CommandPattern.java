@@ -92,7 +92,7 @@ class RemoteController{
             System.out.println("No command assigned at button " + idx);
         }
     }
-}
+}i
 
 public class CommandPattern {
     public static void main(String[] args) {
